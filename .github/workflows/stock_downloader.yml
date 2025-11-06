@@ -1,0 +1,84 @@
+name: Stock Data Downloader
+
+on:
+  # Runs every 2 days at 2:00 AM UTC
+  schedule:
+    - cron: '0 2 */2 * *'
+  
+  # Allows manual triggering from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  download-stock-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper Git operations
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install yfinance pandas requests
+    
+    - name: Create stock_data directory
+      run: mkdir -p stock_data
+    
+    - name: Run stock downloader
+      run: |
+        python stock_downloader.py
+    
+    - name: Check for changes
+      id: check_changes
+      run: |
+        git diff --quiet stock_data/ download_log.txt || echo "changes=true" >> $GITHUB_OUTPUT
+    
+    - name: Configure Git
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+    
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git add stock_data/ download_log.txt
+        git commit -m "🤖 Auto-update stock data - $(date +'%Y-%m-%d %H:%M:%S UTC')"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload download log as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: download-log-${{ github.run_number }}
+        path: download_log.txt
+        retention-days: 30
+    
+    - name: Summary
+      if: always()
+      run: |
+        echo "## 📊 Stock Data Download Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Run Date:** $(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Files in stock_data/:**" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        ls -lh stock_data/ | tail -20 >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Total files:** $(ls stock_data/*.csv.gz 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Last 10 log entries:**" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        tail -10 download_log.txt >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
