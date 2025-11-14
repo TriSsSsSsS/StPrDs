@@ -4,7 +4,7 @@ Automated stock data downloader for Russell 1000 companies using GitHub Actions.
 
 ## 🚀 Features
 
-- ✅ **Automated Downloads**: Runs every weekday (Monday-Friday) via GitHub Actions
+- ✅ **Automated Downloads**: Runs Tuesday-Sunday via GitHub Actions
 - 📊 **Russell 1000 Coverage**: Downloads data for 1008 tickers
 - 💾 **Efficient Storage**: Compressed CSV files (gzip)
 - 🔄 **Incremental Updates**: Appends new data without duplicates
@@ -52,8 +52,8 @@ Stock Prices Dataset/
 ### 2. Configure GitHub Actions
 
 The workflow is already configured in `.github/workflows/stock_downloader.yml`. It will:
-- Run automatically every weekday (Monday to Friday) at 3:00 AM UTC (4:00 AM Italy time)
-- Skip weekends when stock market is closed
+- Run automatically Tuesday to Sunday at 3:00 AM UTC (4:00 AM Italy time)
+- Skip Monday (avoids downloading weekend data when market was closed)
 - Download stock data for the past 2 days (1-minute intervals)
 - Commit and push changes automatically
 
@@ -75,21 +75,20 @@ You can also trigger the workflow manually:
 
 ## 📅 Schedule
 
-- **Frequency**: Every weekday (Monday to Friday, excludes weekends)
+- **Frequency**: Every day except Monday (Tuesday-Sunday)
 - **Time**: 3:00 AM UTC (4:00 AM Italy time)
-- **Cron Expression**: `0 3 * * 1-5`
-- **Reason**: Stock market is closed on weekends
+- **Cron Expression**: `0 3 * * 2-6,0`
+- **Reason**: Monday at 3 AM would only download weekend data (market closed)
 
 To change the schedule, edit `.github/workflows/stock_downloader.yml`:
 ```yaml
 schedule:
-  - cron: '0 3 * * 1-5'  # Modify this line
+  - cron: '0 3 * * 2-6,0'  # Modify this line
 ```
 
 ### Common Cron Examples:
 - Every day at 3 AM: `0 3 * * *`
-- Every 3 days at 3 AM: `0 3 */3 * *`
-- Every Monday at 3 AM: `0 3 * * 1`
+- Tuesday to Sunday at 3 AM: `0 3 * * 2-6,0`
 - Monday to Friday at 3 AM: `0 3 * * 1-5`
 - Twice daily (3 AM & 3 PM): `0 3,15 * * *`
 

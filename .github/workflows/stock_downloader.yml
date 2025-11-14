@@ -1,10 +1,10 @@
 name: Stock Data Downloader
 
 on:
-  # Runs Monday to Friday at 3:00 AM UTC (4:00 AM Italy time)
-  # Excludes weekends when market is closed
+  # Runs Tuesday to Sunday at 3:00 AM UTC (4:00 AM Italy time)
+  # Skips Monday to avoid downloading when market is closed
   schedule:
-    - cron: '0 3 * * 1-5'  # Monday to Friday at 3:00 AM UTC
+    - cron: '0 3 * * 2-6,0'  # Tuesday to Sunday at 3:00 AM UTC
   
   # Allows manual triggering from GitHub Actions tab
   workflow_dispatch:
