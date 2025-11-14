@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 import logging
 import warnings
+import random
 
 # Suppress yfinance warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -28,6 +29,9 @@ logging.basicConfig(
 # Create data directory
 DATA_DIR = Path("stock_data")
 DATA_DIR.mkdir(exist_ok=True)
+
+# Create earnings directory
+EARNINGS_FILE = Path("earnings_dates.csv.gz")
 
 # Russell 1000 Companies (as of August 22, 2025)
 ALL_TICKERS = ["MMM","AOS","AAON","ABT","ABBV","ACHC","ACN","AYI","ADBE","ADT","WMS","AMD",
@@ -179,13 +183,97 @@ def save_data(ticker, df):
         return False
 
 
+def get_earnings_dates(ticker):
+    """
+    Get earnings dates for a ticker
+    Returns DataFrame with Ticker and Earnings_Date columns
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        earnings_dates = stock.earnings_dates
+        
+        if earnings_dates is None or earnings_dates.empty:
+            return None
+        
+        # Reset index to get dates as a column
+        df = earnings_dates.reset_index()
+        df = df.rename(columns={'index': 'Earnings_Date'})
+        
+        # Add ticker column
+        df['Ticker'] = ticker
+        
+        # Select only date and ticker
+        df = df[['Ticker', 'Earnings_Date']]
+        
+        return df
+        
+    except Exception as e:
+        logging.error(f"Error getting earnings for {ticker}: {str(e)}")
+        return None
+
+
+def save_earnings_data(all_earnings_df):
+    """
+    Save all earnings data to a single compressed CSV file
+    """
+    try:
+        # If file exists, load and append new data
+        if EARNINGS_FILE.exists():
+            existing_df = pd.read_csv(EARNINGS_FILE, compression='gzip', parse_dates=['Earnings_Date'])
+            all_earnings_df = pd.concat([existing_df, all_earnings_df], ignore_index=True)
+            # Remove duplicates
+            all_earnings_df = all_earnings_df.drop_duplicates(subset=['Ticker', 'Earnings_Date'], keep='last')
+        
+        # Sort by Ticker and Date
+        all_earnings_df = all_earnings_df.sort_values(['Ticker', 'Earnings_Date'])
+        
+        # Save to compressed CSV
+        all_earnings_df.to_csv(EARNINGS_FILE, compression='gzip', index=False)
+        
+        logging.info(f"📊 Saved earnings data: {len(all_earnings_df)} records")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error saving earnings data: {str(e)}")
+        return False
+
+
+def save_data(ticker, df):
+    """
+    Save data to compressed CSV file (append mode)
+    """
+    file_path = DATA_DIR / f"{ticker}.csv.gz"
+    
+    try:
+        # If file exists, load and append new data
+        if file_path.exists():
+            existing_df = pd.read_csv(file_path, compression='gzip', parse_dates=['Datetime'])
+            df = pd.concat([existing_df, df], ignore_index=True)
+            # Remove duplicates based on Datetime and Ticker
+            df = df.drop_duplicates(subset=['Datetime', 'Ticker'], keep='last')
+        
+        # Sort by Datetime
+        df = df.sort_values('Datetime')
+        
+        # Save to compressed CSV
+        df.to_csv(file_path, compression='gzip', index=False)
+        
+        return True
+    except Exception as e:
+        logging.error(f"Error saving data for {ticker}: {str(e)}")
+        return False
+
+
 def download_all(tickers, start_date, end_date, interval="30m", delay=0.2):
     """
     Download data for all tickers with progress tracking
+    Also collects earnings dates for all tickers
     """
     total = len(tickers)
     successful = 0
     failed = 0
+    failed_tickers = []
+    all_earnings = []
     
     logging.info(f"Starting download of {total} tickers...")
     logging.info(f"Period: {start_date} to {end_date}")
@@ -194,6 +282,7 @@ def download_all(tickers, start_date, end_date, interval="30m", delay=0.2):
     for i, ticker in enumerate(tickers, 1):
         logging.info(f"[{i}/{total}] Processing {ticker}...")
         
+        # Download price data
         df = download_ticker_data(ticker, start_date, end_date, interval)
         
         if df is not None and not df.empty:
@@ -202,12 +291,24 @@ def download_all(tickers, start_date, end_date, interval="30m", delay=0.2):
                 logging.info(f"✅ {ticker}: {len(df)} records saved")
             else:
                 failed += 1
+                failed_tickers.append(ticker)
         else:
             failed += 1
+            failed_tickers.append(ticker)
             logging.error(f"❌ {ticker}: Failed to download")
+        
+        # Get earnings dates (less verbose)
+        earnings_df = get_earnings_dates(ticker)
+        if earnings_df is not None and not earnings_df.empty:
+            all_earnings.append(earnings_df)
         
         # Rate limiting
         time.sleep(delay)
+    
+    # Save all earnings data
+    if all_earnings:
+        combined_earnings = pd.concat(all_earnings, ignore_index=True)
+        save_earnings_data(combined_earnings)
     
     logging.info("=" * 50)
     logging.info("Download complete!")
@@ -215,34 +316,115 @@ def download_all(tickers, start_date, end_date, interval="30m", delay=0.2):
     logging.info(f"Failed: {failed}/{total}")
     logging.info("=" * 50)
     
-    return successful, failed
+    return successful, failed, failed_tickers
+    
+    logging.info("=" * 50)
+    logging.info("Download complete!")
+    logging.info(f"Successful: {successful}/{total}")
+    logging.info(f"Failed: {failed}/{total}")
+    logging.info("=" * 50)
+    
+    return successful, failed, failed_tickers
+
+
+def create_sample_file():
+    """
+    Create a readable sample file with a random ticker's data
+    Shows first 3 days and last 30 days of data
+    """
+    try:
+        # Get all existing CSV files
+        csv_files = list(DATA_DIR.glob("*.csv.gz"))
+        
+        if not csv_files:
+            logging.warning("No CSV files found to create sample")
+            return
+        
+        # Select a random file
+        random_file = random.choice(csv_files)
+        ticker = random_file.stem.replace('.csv', '')
+        
+        # Read the data
+        df = pd.read_csv(random_file, compression='gzip', parse_dates=['Datetime'])
+        
+        if df.empty:
+            logging.warning(f"Empty data for {ticker}")
+            return
+        
+        # Sort by datetime
+        df = df.sort_values('Datetime')
+        
+        # Get first 3 days and last 30 days
+        first_3_days = df.head(3 * 13)  # 3 days * ~13 records per day (30min intervals)
+        last_30_days = df.tail(30 * 13)  # 30 days * ~13 records per day
+        
+        # Create sample file
+        sample_path = Path('sample_data.txt')
+        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(sample_path, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write(f"STOCK DATA SAMPLE - {ticker}\n")
+            f.write(f"Generated: {current_date}\n")
+            f.write(f"Total records in file: {len(df)}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write("FIRST 3 DAYS OF DATA:\n")
+            f.write("-" * 80 + "\n")
+            f.write(first_3_days.to_string(index=False))
+            f.write("\n\n")
+            
+            f.write("LAST 30 DAYS OF DATA:\n")
+            f.write("-" * 80 + "\n")
+            f.write(last_30_days.to_string(index=False))
+            f.write("\n\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"End of sample for {ticker}\n")
+            f.write("=" * 80 + "\n")
+        
+        logging.info(f"📄 Sample file created with data from {ticker}")
+        logging.info(f"   First 3 days: {len(first_3_days)} records")
+        logging.info(f"   Last 30 days: {len(last_30_days)} records")
+        
+    except Exception as e:
+        logging.error(f"Error creating sample file: {str(e)}")
 
 
 def main():
     """Main execution function"""
-    # Calculate dates (from 2 days ago to today)
+    # Calculate dates (from 1 day ago to today)
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=2)
+    start_date = end_date - timedelta(days=1)
     
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     
     logging.info(f"📅 Download period: {start_str} to {end_str}")
-    logging.info(f"📆 Days included: 3 days (from 2 days ago to today)")
-    logging.info(f"⏰ Interval: 30 minutes")
+    logging.info(f"📆 Days included: 2 days (from 1 day ago to today)")
+    logging.info(f"⏰ Interval: 1 minute")
     logging.info(f"📊 Total tickers: {len(ALL_TICKERS)}")
     
     # Run download
     start_time = time.time()
-    successful, failed = download_all(
+    successful, failed, failed_tickers = download_all(
         tickers=ALL_TICKERS,
         start_date=start_str,
         end_date=end_str,
-        interval="30m",
+        interval="1m",
         delay=0.2
     )
     
     elapsed_time = time.time() - start_time
+    
+    # Append simplified summary to log
+    log_path = Path('download_log.txt')
+    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    with open(log_path, 'a') as f:
+        if failed == 0:
+            f.write(f"{successful}/{len(ALL_TICKERS)} - {current_date}\n")
+        else:
+            f.write(f"{successful}/{len(ALL_TICKERS)} - Failed: {failed_tickers} - {current_date}\n")
     
     logging.info(f"⏱️  Total time: {elapsed_time/60:.2f} minutes")
     logging.info(f"✅ Successfully downloaded: {successful}/{len(ALL_TICKERS)} tickers")
@@ -251,6 +433,9 @@ def main():
     # Count files
     csv_files = list(DATA_DIR.glob("*.csv.gz"))
     logging.info(f"📁 Total files in directory: {len(csv_files)}")
+    
+    # Create sample file with random ticker data
+    create_sample_file()
 
 
 if __name__ == "__main__":

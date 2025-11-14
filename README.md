@@ -4,11 +4,11 @@ Automated stock data downloader for Russell 1000 companies using GitHub Actions.
 
 ## 🚀 Features
 
-- ✅ **Automated Downloads**: Runs every 2 days via GitHub Actions
-- 📊 **Russell 1000 Coverage**: Downloads data for 1007 tickers
+- ✅ **Automated Downloads**: Runs every weekday (Monday-Friday) via GitHub Actions
+- 📊 **Russell 1000 Coverage**: Downloads data for 1008 tickers
 - 💾 **Efficient Storage**: Compressed CSV files (gzip)
 - 🔄 **Incremental Updates**: Appends new data without duplicates
-- 📝 **Comprehensive Logging**: Tracks all downloads and errors
+- 📝 **Simplified Logging**: One-line summary per execution
 - 🤖 **Auto-Commit**: Automatically commits and pushes updated data
 
 ## 📁 Project Structure
@@ -27,6 +27,8 @@ Stock Prices Dataset/
 ├── tickers.csv                      # List of tickers
 ├── requirements.txt                 # Python dependencies
 ├── download_log.txt                 # Download history log
+├── sample_data.txt                  # Random ticker sample (readable)
+├── earnings_dates.csv.gz            # Earnings dates for all tickers
 └── README.md                        # This file
 ```
 
@@ -50,8 +52,9 @@ Stock Prices Dataset/
 ### 2. Configure GitHub Actions
 
 The workflow is already configured in `.github/workflows/stock_downloader.yml`. It will:
-- Run automatically every 2 days at 2:00 AM UTC
-- Download stock data for the past 3 days
+- Run automatically every weekday (Monday to Friday) at 3:00 AM UTC (4:00 AM Italy time)
+- Skip weekends when stock market is closed
+- Download stock data for the past 2 days (1-minute intervals)
 - Commit and push changes automatically
 
 **No additional configuration needed!** GitHub Actions will use the built-in `GITHUB_TOKEN` for authentication.
@@ -72,21 +75,23 @@ You can also trigger the workflow manually:
 
 ## 📅 Schedule
 
-- **Frequency**: Every 2 days
-- **Time**: 2:00 AM UTC (adjust in workflow file if needed)
-- **Cron Expression**: `0 2 */2 * *`
+- **Frequency**: Every weekday (Monday to Friday, excludes weekends)
+- **Time**: 3:00 AM UTC (4:00 AM Italy time)
+- **Cron Expression**: `0 3 * * 1-5`
+- **Reason**: Stock market is closed on weekends
 
 To change the schedule, edit `.github/workflows/stock_downloader.yml`:
 ```yaml
 schedule:
-  - cron: '0 2 */2 * *'  # Modify this line
+  - cron: '0 3 * * 1-5'  # Modify this line
 ```
 
 ### Common Cron Examples:
-- Every day at 2 AM: `0 2 * * *`
-- Every 3 days at 2 AM: `0 2 */3 * *`
-- Every Monday at 2 AM: `0 2 * * 1`
-- Twice daily (2 AM & 2 PM): `0 2,14 * * *`
+- Every day at 3 AM: `0 3 * * *`
+- Every 3 days at 3 AM: `0 3 */3 * *`
+- Every Monday at 3 AM: `0 3 * * 1`
+- Monday to Friday at 3 AM: `0 3 * * 1-5`
+- Twice daily (3 AM & 3 PM): `0 3,15 * * *`
 
 ## 🔧 Local Testing
 
@@ -102,6 +107,7 @@ python stock_downloader.py
 
 ## 📊 Data Format
 
+### Price Data
 Each ticker's data is saved as a compressed CSV file with the following columns:
 - `Datetime`: Timestamp of the data point
 - `Open`: Opening price
@@ -111,13 +117,29 @@ Each ticker's data is saved as a compressed CSV file with the following columns:
 - `Volume`: Trading volume
 - `Ticker`: Stock ticker symbol
 
-**Interval**: 30 minutes  
+**Interval**: 1 minute  
 **Compression**: gzip  
 **File naming**: `{TICKER}.csv.gz` (e.g., `AAPL.csv.gz`)
 
-## 📝 Logs
+### Earnings Data
+Earnings dates for all tickers are saved in a single file: `earnings_dates.csv.gz`
 
-- **download_log.txt**: Contains detailed logs of all download operations
+Columns:
+- `Ticker`: Stock ticker symbol
+- `Earnings_Date`: Date and time of earnings announcement
+
+**Compression**: gzip  
+**Easy to merge**: Use `Ticker` column to join with price data
+
+## 📝 Logs & Sample Data
+
+- **download_log.txt**: Contains a simplified one-line summary per execution:
+  - If all downloads succeed: `1008/1008 - YYYY-MM-DD HH:MM:SS`
+  - If some fail: `1007/1008 - Failed: ['AAPL'] - YYYY-MM-DD HH:MM:SS`
+- **sample_data.txt**: Readable text file with sample data from a random ticker
+  - Shows first 3 days and last 30 days of data
+  - Recreated daily with a different random ticker
+  - Easy to read on mobile devices without decompressing files
 - **GitHub Actions Artifacts**: Each run uploads the log as an artifact (30-day retention)
 
 ## 🔍 Monitoring
@@ -164,8 +186,8 @@ See `requirements.txt` for specific versions.
 ### Change Download Period
 Edit `stock_downloader.py`:
 ```python
-# Default: Downloads last 3 days (from 2 days ago to today)
-start_date = end_date - timedelta(days=2)
+# Default: Downloads last 2 days (from 1 day ago to today)
+start_date = end_date - timedelta(days=1)
 
 # Change to download last 7 days:
 start_date = end_date - timedelta(days=6)
@@ -174,11 +196,11 @@ start_date = end_date - timedelta(days=6)
 ### Change Data Interval
 Edit `stock_downloader.py`:
 ```python
-# Default: 30-minute intervals
-interval="30m"
+# Default: 1-minute intervals
+interval="1m"
 
 # Options: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-interval="1h"  # Hourly data
+interval="5m"  # 5-minute data
 ```
 
 ### Add/Remove Tickers
@@ -209,6 +231,23 @@ for file in data_dir.glob('*.csv.gz'):
 
 combined_df = pd.concat(all_data, ignore_index=True)
 print(f"Total records: {len(combined_df)}")
+```
+
+### Merge with Earnings Data
+```python
+import pandas as pd
+
+# Load price data for a ticker
+price_df = pd.read_csv('stock_data/AAPL.csv.gz', compression='gzip', parse_dates=['Datetime'])
+
+# Load earnings data
+earnings_df = pd.read_csv('earnings_dates.csv.gz', compression='gzip', parse_dates=['Earnings_Date'])
+
+# Merge on Ticker column
+merged_df = pd.merge(price_df, earnings_df, on='Ticker', how='left')
+
+# Filter data around earnings dates
+print(merged_df[merged_df['Earnings_Date'].notna()])
 ```
 
 ## 🤝 Contributing

@@ -1,12 +1,10 @@
 name: Stock Data Downloader
 
 on:
-  # Runs on Tuesday, Thursday, and Saturday at 2:00 AM UTC (3:00 AM Italy time)
-  # This covers all stock market days (Mon-Fri) plus weekend
+  # Runs Monday to Friday at 3:00 AM UTC (4:00 AM Italy time)
+  # Excludes weekends when market is closed
   schedule:
-    - cron: '0 2 * * 2'  # Tuesday at 2:00 AM UTC
-    - cron: '0 2 * * 4'  # Thursday at 2:00 AM UTC
-    - cron: '0 2 * * 6'  # Saturday at 2:00 AM UTC
+    - cron: '0 3 * * 1-5'  # Monday to Friday at 3:00 AM UTC
   
   # Allows manual triggering from GitHub Actions tab
   workflow_dispatch:
@@ -42,7 +40,7 @@ jobs:
     - name: Check for changes
       id: check_changes
       run: |
-        git diff --quiet stock_data/ download_log.txt || echo "changes=true" >> $GITHUB_OUTPUT
+        git diff --quiet stock_data/ download_log.txt sample_data.txt earnings_dates.csv.gz || echo "changes=true" >> $GITHUB_OUTPUT
     
     - name: Configure Git
       if: steps.check_changes.outputs.changes == 'true'
@@ -53,7 +51,7 @@ jobs:
     - name: Commit and push changes
       if: steps.check_changes.outputs.changes == 'true'
       run: |
-        git add stock_data/ download_log.txt
+        git add stock_data/ download_log.txt sample_data.txt earnings_dates.csv.gz
         git commit -m "🤖 Auto-update stock data - $(date +'%Y-%m-%d %H:%M:%S UTC')"
         git push
       env:
